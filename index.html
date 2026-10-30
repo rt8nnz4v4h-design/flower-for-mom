@@ -786,13 +786,25 @@
     </section>
   </main>
   <noscript><div style="position:fixed;inset:0;display:grid;place-items:center;background:#eadfd2;font-family:serif">请开启 JavaScript。</div></noscript>
-  <script type="importmap">
-    {
-      "imports": {
-        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
-      }
-    }
+  <script>
+    (() => {
+      const offlineFile = location.protocol === "file:";
+      const base = offlineFile
+        ? "https://cdn.jsdelivr.net/npm/three@0.160.0/"
+        : new URL("./assets/vendor/three/", location.href).href;
+      const imports = offlineFile
+        ? {
+            "three": base + "build/three.module.js",
+            "three/addons/": base + "examples/jsm/"
+          }
+        : {
+            "three": base + "three.module.js",
+            "three/addons/": base
+          };
+      document.write(
+        `<script type="importmap">${JSON.stringify({ imports }).replace(/</g, "\\u003c")}<\/script>`
+      );
+    })();
   </script>
   <script type="module">
     import * as THREE from "three";
@@ -1550,9 +1562,10 @@
       "huashu1","huashu2","huashu3","huashu4","huashu5",
       "huashu6","huashu7","huashu8","huashu9"
     ];
-    const BOUQUET_ASSET_VERSION="huashu9-20261030-3";
+    const BOUQUET_ASSET_VERSION="huashu9-20261030-4";
     const importedBouquetTemplates=new Map();
     const bouquetScriptLoads=new Map();
+    const MODEL_CACHE_LIMIT=COARSE?2:4;
     let blindLoadRequest=0;
     let secretBranchIndex=-1;
     let boxGroup=null;
@@ -1565,7 +1578,9 @@
     const cardState={lit:new Set(),cards:new Map(),count:0};
 
     const bouquetDracoLoader=new DRACOLoader();
-    bouquetDracoLoader.setDecoderPath("https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/draco/");
+    bouquetDracoLoader.setDecoderPath(location.protocol==="file:"
+      ? "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/draco/"
+      : new URL("assets/vendor/three/libs/draco/",window.location.href).href);
     const bouquetGltfLoader=new GLTFLoader();
     bouquetGltfLoader.setDRACOLoader(bouquetDracoLoader);
     const BOUQUET_FLOWER_COUNTS={
@@ -1683,8 +1698,8 @@
         source.searchParams.set("v",BOUQUET_ASSET_VERSION);
         script.src=source.href;
         script.async=true;
-        script.onload=resolve;
-        script.onerror=()=>reject(new Error(`无法加载花束模型：${key}`));
+        script.onload=()=>{script.remove();resolve();};
+        script.onerror=()=>{script.remove();reject(new Error(`无法加载花束模型：${key}`));};
         document.head.appendChild(script);
       });
       bouquetScriptLoads.set(key,promise);
@@ -1705,8 +1720,15 @@
       const gltf=await new Promise((resolve,reject)=>
         bouquetGltfLoader.parse(decodeBase64Asset(encoded),"",resolve,reject)
       );
+      encoded="";
+      if(window.__B221_BOUQUET_LIBRARY__)delete window.__B221_BOUQUET_LIBRARY__[key];
       const template=prepareBouquetTemplate(gltf.scene,key);
       importedBouquetTemplates.set(key,template);
+      while(importedBouquetTemplates.size>MODEL_CACHE_LIMIT){
+        const oldest=importedBouquetTemplates.keys().next().value;
+        if(oldest===key)break;
+        importedBouquetTemplates.delete(oldest);
+      }
       return template;
     }
 
@@ -2430,12 +2452,6 @@
       if(request!==blindLoadRequest||currentBlind!==index)return;
       stateMachine.goto("reveal");
     }
-    let bouquetPrefetchStarted=false;
-    function scheduleBouquetPrefetch(){
-      if(bouquetPrefetchStarted)return;bouquetPrefetchStarted=true;
-      const order=[...BOUQUET_MODEL_KEYS.keys()].sort(()=>Math.random()-.5);
-      (async()=>{for(const i of order){try{await ensureBouquetModel(i);}catch(_){/* 单个失败不影响其它 */}}})();
-    }
     function setupRevealUI(){
       const recipe=CONFIG.bouquets[currentBlind ?? 0];
       ui.revealName.textContent="正在拆盒…";
@@ -2660,7 +2676,6 @@
           moveCamera(new THREE.Vector3(3.0,4.2,4.3),new THREE.Vector3(0,.55,.12),previous==="gate"?2.1:.8);
         }else if(name==="blindbox"){
           setStep(1);showView("blind");renderBlind();
-          scheduleBouquetPrefetch();
           setGuide("第 2 步","点一盒拆开，或者让花艺师随机替你抽一束。");
           if(bouquetRoot)bouquetRoot.visible=false;
           if(boxGroup)boxGroup.visible=false;
@@ -2990,16 +3005,11 @@
       document.getElementById("final-tail").textContent=`—— ${CONFIG.signature} · ${CONFIG.date}`;
       buildFinalLetters();renderPalette();renderBlind();updateSoundUI();updateCounter();
     }
-    async function bootstrap(){
+    function bootstrap(){
       document.documentElement.style.colorScheme="only light";
       document.body.style.backgroundColor="#eadfd2";
       ui.drawer.style.background="#fffaf5";
       prepareUI();buildShop();createPalettePreview();buildBlindDisplay();bindUI();resize();
-      try{
-        await ensureBouquetModel(0);
-      }catch(error){
-        console.warn("Initial bouquet model unavailable, using procedural fallback.",error);
-      }
       controls.enabled=false;
       camera.position.set(0,2.15,8.7);controls.target.set(0,1.0,-.3);controls.update();
       state.view="gate";
@@ -3022,7 +3032,7 @@
         getPalette:()=>palette.map(c=>c.name),
         getRecipe:()=>currentBlind===null?null:CONFIG.bouquets[currentBlind],
         getBouquetAudit:()=>({...bouquetAudit}),
-        modelLoaded:importedBouquetTemplates.has(BOUQUET_MODEL_KEYS[0]),
+        get modelLoaded(){return importedBouquetTemplates.has(BOUQUET_MODEL_KEYS[0]);},
         getModelKey:()=>BOUQUET_MODEL_KEYS[currentBlind??0],
         getLoadedModelKeys:()=>[...importedBouquetTemplates.keys()],
         getBranchCount:()=>bouquetBranches.length,
@@ -3030,8 +3040,13 @@
         getBouquetPaletteAudit:()=>({...bouquetPaletteAudit,counts:[...bouquetPaletteAudit.counts]})
       };
       animate();
+      setTimeout(()=>{
+        ensureBouquetModel(0).catch(error=>console.warn("Bouquet warm-up unavailable.",error));
+      },600);
     }
-    if(renderer)bootstrap().catch(error=>console.error("Bootstrap failed",error));
+    if(renderer){
+      try{bootstrap();}catch(error){console.error("Bootstrap failed",error);}
+    }
   </script>
 </body>
 </html>
