@@ -8,6 +8,9 @@
   <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#eadfd2">
   <meta name="color-scheme" content="light only">
   <meta name="supported-color-schemes" content="light">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <link rel="icon" href="data:,">
   <title>Flower for you · 给妈妈的花店</title>
@@ -1547,6 +1550,7 @@
       "huashu1","huashu2","huashu3","huashu4","huashu5",
       "huashu6","huashu7","huashu8","huashu9"
     ];
+    const BOUQUET_ASSET_VERSION="huashu9-20261030-2";
     const importedBouquetTemplates=new Map();
     const bouquetScriptLoads=new Map();
     let blindLoadRequest=0;
@@ -1675,7 +1679,9 @@
       if(bouquetScriptLoads.has(key))return bouquetScriptLoads.get(key);
       const promise=new Promise((resolve,reject)=>{
         const script=document.createElement("script");
-        script.src=new URL(`assets/bouquets/${key}.b64.js`,window.location.href).href;
+        const source=new URL(`assets/bouquets/${key}.b64.js`,window.location.href);
+        source.searchParams.set("v",BOUQUET_ASSET_VERSION);
+        script.src=source.href;
         script.async=true;
         script.onload=resolve;
         script.onerror=()=>reject(new Error(`无法加载花束模型：${key}`));
