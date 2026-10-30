@@ -1550,7 +1550,7 @@
       "huashu1","huashu2","huashu3","huashu4","huashu5",
       "huashu6","huashu7","huashu8","huashu9"
     ];
-    const BOUQUET_ASSET_VERSION="huashu9-20261030-2";
+    const BOUQUET_ASSET_VERSION="huashu9-20261030-3";
     const importedBouquetTemplates=new Map();
     const bouquetScriptLoads=new Map();
     let blindLoadRequest=0;
@@ -1942,6 +1942,67 @@
       material.needsUpdate=true;
       return material;
     }
+    function keepOnlyFlowerComponents(geometry,mask,map){
+      const position=geometry.attributes.position;
+      const uv=geometry.attributes.uv;
+      const index=geometry.index;
+      if(!position||!uv||!index)return;
+      const parent=new Int32Array(position.count);
+      for(let i=0;i<parent.length;i++)parent[i]=i;
+      const find=value=>{
+        while(parent[value]!==value){
+          parent[value]=parent[parent[value]];
+          value=parent[value];
+        }
+        return value;
+      };
+      const join=(a,b)=>{
+        a=find(a);b=find(b);
+        if(a!==b)parent[b]=a;
+      };
+      for(let i=0;i<index.count;i+=3){
+        const a=index.getX(i);
+        join(a,index.getX(i+1));
+        join(a,index.getX(i+2));
+      }
+      const sums=new Float64Array(position.count);
+      const counts=new Uint32Array(position.count);
+      const green=new Uint32Array(position.count);
+      let pixels=null,width=0,height=0;
+      try{
+        const image=map?.image;
+        if(image?.width&&image?.height){
+          const canvas=document.createElement("canvas");
+          canvas.width=width=image.width;canvas.height=height=image.height;
+          const context=canvas.getContext("2d",{willReadFrequently:true});
+          context.drawImage(image,0,0,width,height);
+          pixels=context.getImageData(0,0,width,height).data;
+        }
+      }catch(_){pixels=null;}
+      for(let i=0;i<position.count;i++){
+        const root=find(i);
+        sums[root]+=mask[i];counts[root]++;
+        if(!pixels)continue;
+        const u=((uv.getX(i)%1)+1)%1;
+        const v=((uv.getY(i)%1)+1)%1;
+        const x=Math.min(width-1,Math.floor(u*width));
+        const y=Math.min(height-1,Math.floor((1-v)*height));
+        const offset=(y*width+x)*4;
+        const r=pixels[offset],g=pixels[offset+1],b=pixels[offset+2];
+        if(g>r*1.06&&g>b*1.03)green[root]++;
+      }
+      const flowerRoots=new Uint8Array(position.count);
+      for(let i=0;i<position.count;i++){
+        if(i!==find(i)||!counts[i])continue;
+        const coverage=sums[i]/counts[i];
+        const greenRatio=green[i]/counts[i];
+        if(coverage>=.18&&greenRatio<=.13)flowerRoots[i]=1;
+      }
+      for(let i=0;i<position.count;i++){
+        if(!flowerRoots[find(i)])mask[i]=0;
+      }
+      geometry.attributes.flowerTintMask.needsUpdate=true;
+    }
     function buildImportedBouquet(recipe,palette,index,template){
       const model=template.clone(true);
       model.scale.setScalar(.8);
@@ -2056,6 +2117,7 @@
         }
         object.geometry.setAttribute("color",new THREE.BufferAttribute(vertexColors,3));
         object.geometry.setAttribute("flowerTintMask",new THREE.BufferAttribute(flowerTintMask,1));
+        keepOnlyFlowerComponents(object.geometry,flowerTintMask,object.material?.map||null);
         const cloned=materials.map(material=>{
           if(!material)return material;
           if(allowed.has(material.name)){
