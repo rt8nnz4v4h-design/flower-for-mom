@@ -874,7 +874,7 @@
       renderer.setSize(innerWidth, innerHeight, false);
       renderer.outputColorSpace = THREE.SRGBColorSpace;
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      renderer.toneMappingExposure = .94;
+      renderer.toneMappingExposure = 1.08;
       renderer.shadowMap.enabled = true;
       renderer.shadowMap.type = THREE.PCFSoftShadowMap;
       renderer.setClearColor("#eadfd2");
@@ -1009,11 +1009,11 @@
       });
       grain.wrapS=grain.wrapT=THREE.RepeatWrapping;grain.repeat.set(2.5,1.5);
       mesh(new THREE.PlaneGeometry(4.6,2.96),new THREE.MeshBasicMaterial({map:grain,transparent:true,opacity:.5,depthWrite:false}),[0,.158,0],[-Math.PI/2,0,0]);
-      const hemi=new THREE.HemisphereLight("#fffaf0","#cdb9a8",1.02);scene.add(hemi);
-      keyLight=new THREE.DirectionalLight("#ffe4bd",1.8);keyLight.position.set(-2.3,5.7,4.4);keyLight.castShadow=true;
+      const hemi=new THREE.HemisphereLight("#fffdf7","#d9d3c8",1.14);scene.add(hemi);
+      keyLight=new THREE.DirectionalLight("#fff4e3",2.05);keyLight.position.set(-2.3,5.7,4.4);keyLight.castShadow=true;
       keyLight.shadow.mapSize.set(COARSE?512:1024,COARSE?512:1024);keyLight.shadow.camera.left=-4;keyLight.shadow.camera.right=4;keyLight.shadow.camera.top=4;keyLight.shadow.camera.bottom=-4;keyLight.shadow.camera.near=.5;keyLight.shadow.camera.far=14;keyLight.shadow.bias=-.0003;keyLight.shadow.normalBias=.018;scene.add(keyLight);
-      const warm=new THREE.PointLight("#ffc991",5.8,6,2);warm.position.set(-1.4,3.5,-.5);scene.add(warm);
-      const fill=new THREE.PointLight("#f1e7da",2.7,5,2);fill.position.set(2.4,3,.9);scene.add(fill);
+      const warm=new THREE.PointLight("#ffd7aa",3.6,6,2);warm.position.set(-1.4,3.5,-.5);scene.add(warm);
+      const fill=new THREE.PointLight("#edf5ff",2.6,5,2);fill.position.set(2.4,3,.9);scene.add(fill);
       buildPendants();
       buildShelf();
       buildBenchProps();
@@ -1562,7 +1562,7 @@
       "huashu1","huashu2","huashu3","huashu4","huashu5",
       "huashu6","huashu7","huashu8","huashu9"
     ];
-    const BOUQUET_ASSET_VERSION="huashu9-20261030-4";
+    const BOUQUET_ASSET_VERSION="huashu9-20261030-5";
     const importedBouquetTemplates=new Map();
     const bouquetScriptLoads=new Map();
     const MODEL_CACHE_LIMIT=COARSE?2:4;
@@ -1950,17 +1950,19 @@
           "#include <common>",
           "#include <common>\nvarying float vFlowerTintMask;"
         ).replace(
+          "#include <map_fragment>",
+          "#include <map_fragment>\nfloat bouquetTextureLuminance=dot(diffuseColor.rgb,vec3(.2126,.7152,.0722));"
+        ).replace(
           "#include <color_fragment>",
           `#include <color_fragment>
           if(vFlowerTintMask>.001){
             vec3 bouquetBaseColor=diffuseColor.rgb;
-            float bouquetLuminance=dot(bouquetBaseColor,vec3(.2126,.7152,.0722));
-            vec3 bouquetTint=vColor.rgb*(.82+bouquetLuminance*.36);
+            vec3 bouquetTint=vColor.rgb*(.96+bouquetTextureLuminance*.18);
             diffuseColor.rgb=mix(bouquetBaseColor,bouquetTint,vFlowerTintMask);
           }`
         );
       };
-      material.customProgramCacheKey=()=>"flower-tint-v1";
+      material.customProgramCacheKey=()=>"flower-tint-v2";
       material.needsUpdate=true;
       return material;
     }
@@ -2021,7 +2023,8 @@
         if(coverage>=.18&&greenRatio<=.13)flowerRoots[i]=1;
       }
       for(let i=0;i<position.count;i++){
-        if(!flowerRoots[find(i)])mask[i]=0;
+        const root=find(i);
+        mask[i]=flowerRoots[root]?1:0;
       }
       geometry.attributes.flowerTintMask.needsUpdate=true;
     }
@@ -2056,7 +2059,16 @@
         counts:[0,1,2].map(role=>roles.filter(value=>value===role).length),
         colors:palette.map(color=>color.name)
       };
-      const paletteColors=palette.map(color=>new THREE.Color(color.value).lerp(new THREE.Color("#ffffff"),.08));
+      const paletteColors=palette.map(color=>{
+        const enriched=new THREE.Color(color.value);
+        const hsl={};enriched.getHSL(hsl);
+        enriched.setHSL(
+          hsl.h,
+          clamp(hsl.s*1.45+.04,.12,.82),
+          clamp(hsl.l*.82,.30,.82)
+        );
+        return enriched;
+      });
       const anchorColors=flowerPoints.map((_,i)=>{
         const rr=mulberry32(CONFIG.seed^(index*7919+i*131));
         const hsl={};paletteColors[roles[i]].getHSL(hsl);
@@ -2145,21 +2157,21 @@
           if(allowed.has(material.name)){
             if(!materialClones.has(material.uuid)){
               const physical=enableFlowerTint(new THREE.MeshPhysicalMaterial({
-                map:material.map||null,color:"#ffffff",roughness:.46,metalness:0,
+                map:material.map||null,color:"#ffffff",roughness:.34,metalness:0,
                 side:THREE.DoubleSide,vertexColors:true,transparent:material.transparent,
                 opacity:material.opacity,alphaTest:material.alphaTest,
-                sheen:.34,sheenRoughness:.55,sheenColor:new THREE.Color("#fff2ee"),
-                envMapIntensity:.32
+                sheen:.18,sheenRoughness:.42,sheenColor:new THREE.Color("#fff6ed"),
+                clearcoat:.2,clearcoatRoughness:.46,envMapIntensity:.46
               }));
               materialClones.set(material.uuid,physical);
             }
             const clone=materialClones.get(material.uuid);
             clone.color.set("#ffffff");
-            clone.roughness=.46;
-            clone.clearcoat=.08;
-            clone.clearcoatRoughness=.72;
+            clone.roughness=.34;
+            clone.clearcoat=.2;
+            clone.clearcoatRoughness=.46;
             clone.flatShading=false;
-            clone.envMapIntensity=.32;
+            clone.envMapIntensity=.46;
             clone.side=THREE.DoubleSide;
             clone.needsUpdate=true;
             return clone;
